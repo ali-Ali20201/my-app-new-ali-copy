@@ -17,6 +17,8 @@ export default function Products() {
   const [currency, setCurrency] = useState("$");
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [imageUrl, setImageUrl] = useState("");
+  const [hasQuantity, setHasQuantity] = useState(false);
+  const [quantity, setQuantity] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState("");
@@ -113,6 +115,8 @@ export default function Products() {
           currency,
           category_id: categoryId === "" ? null : Number(categoryId),
           image_url: imageUrl || null,
+          has_quantity: hasQuantity,
+          quantity: hasQuantity ? parseInt(quantity) : 0,
         }),
       });
 
@@ -142,6 +146,8 @@ export default function Products() {
     setCurrency(product.currency || "$");
     setCategoryId(product.category_id || "");
     setImageUrl(product.image_url || "");
+    setHasQuantity(product.has_quantity || false);
+    setQuantity(product.quantity?.toString() || "0");
     
     if (formRef.current) {
       formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -170,6 +176,8 @@ export default function Products() {
       setCategoryId("");
     }
     setImageUrl("");
+    setHasQuantity(false);
+    setQuantity("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -331,6 +339,40 @@ export default function Products() {
             />
           </div>
 
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="hasQuantity"
+                  checked={hasQuantity}
+                  onChange={(e) => setHasQuantity(e.target.checked)}
+                  className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="hasQuantity" className="text-sm font-bold text-gray-700 cursor-pointer">
+                  تفعيل نظام الكمية للمنتج
+                </label>
+              </div>
+            </div>
+            
+            {hasQuantity && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  الكمية المتوفرة
+                </label>
+                <input
+                  type="number"
+                  required={hasQuantity}
+                  min="0"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  className="w-full sm:w-48 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border"
+                  placeholder="أدخل الكمية"
+                />
+              </div>
+            )}
+          </div>
+
           {imageUrl && (
             <div className="mt-2">
               <p className="text-sm text-gray-500 mb-2">معاينة الصورة:</p>
@@ -403,6 +445,11 @@ export default function Products() {
                           return basePrice.toFixed(2);
                         })()} {product.currency || "$"}
                       </p>
+                      {product.has_quantity && (
+                        <p className={`text-xs font-bold mt-1 ${product.quantity <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          الكمية: {product.quantity}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 mr-2">
@@ -452,6 +499,11 @@ export default function Products() {
                           return basePrice.toFixed(2);
                         })()} {product.currency || "$"}
                       </p>
+                      {product.has_quantity && (
+                        <p className={`text-xs font-bold mt-1 ${product.quantity <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          الكمية: {product.quantity}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 mr-2">
