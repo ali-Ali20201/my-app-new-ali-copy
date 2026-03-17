@@ -9,6 +9,7 @@ import multer from "multer";
 import fs from "fs";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import webpush from "web-push";
 import http from "http";
 import { Server } from "socket.io";
@@ -249,41 +250,34 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
-  console.log(`[Email Debug] Attempting to send email to: ${to}`);
-  console.log(`[Email Debug] Subject: ${subject}`);
-  console.log(`[Email Debug] GMAIL_USER: ${process.env.GMAIL_USER}`);
-
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-    throw new Error("GMAIL_USER or GMAIL_PASS is not set in environment variables");
+  console.log(`[Email Debug] Attempting to send email via Resend to: ${to}`);
+  
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not set in environment variables");
   }
 
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_PASS,
-    },
-    family: 4, // Force IPv4 to avoid ENETUNREACH on IPv6
-    connectionTimeout: 20000, 
-    greetingTimeout: 20000,
-    socketTimeout: 20000,
-  } as any);
+  const resend = new Resend(apiKey);
 
   try {
-    const info = await transporter.sendMail({
-      from: `"دعم علي كاش" <${process.env.GMAIL_USER}>`,
-      to,
-      subject,
-      text,
-      html,
+    const { data, error } = await resend.emails.send({
+      from: 'Ali Cash <onboarding@resend.dev>', // Default Resend domain for testing
+      to: [to],
+      subject: subject,
+      text: text || "",
+      html: html || "",
     });
-    console.log(`[Email Debug] Email sent successfully! Message ID: ${info.messageId}`);
-    return info;
+
+    if (error) {
+      console.error("[Email Debug] Resend Error:", error);
+      throw new Error(`فشل إرسال البريد عبر Resend: ${error.message}`);
+    }
+
+    console.log(`[Email Debug] Email sent successfully! ID: ${data?.id}`);
+    return data;
   } catch (error: any) {
-    console.error("[Email Debug] Nodemailer Error:", error);
-    throw new Error(`فشل الاتصال بـ Gmail: ${error.message}. تأكد من استخدام "كلمة مرور التطبيق" (App Password) من 16 حرفاً.`);
+    console.error("[Email Debug] Unexpected Error:", error);
+    throw new Error(`حدث خطأ غير متوقع أثناء إرسال البريد: ${error.message}`);
   }
 }
 
@@ -505,8 +499,8 @@ app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) =>
 
   // Send Email
   try {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-      throw new Error("لم يتم إعداد بريد الإرسال في النظام (GMAIL_USER/GMAIL_PASS)");
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (RESEND_API_KEY)");
     }
 
     await sendEmail({
@@ -571,8 +565,8 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
       .run(code, expires, user.id);
 
     // Send Email
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-      throw new Error("لم يتم إعداد بريد الإرسال في النظام (GMAIL_USER/GMAIL_PASS)");
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (RESEND_API_KEY)");
     }
 
     await sendEmail({
