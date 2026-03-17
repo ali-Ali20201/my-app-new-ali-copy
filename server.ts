@@ -258,15 +258,18 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
   }
 
   const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_PASS,
     },
+    family: 4, // Force IPv4 to avoid ENETUNREACH on IPv6
     connectionTimeout: 20000, 
     greetingTimeout: 20000,
     socketTimeout: 20000,
-  });
+  } as any);
 
   try {
     const info = await transporter.sendMail({
