@@ -40,7 +40,7 @@ export default function Layout() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
-  const [notifications, setNotifications] = useState({ orders: 0, recharges: 0 });
+  const [notifications, setNotifications] = useState({ orders: 0, recharges: 0, messages: 0 });
   const [copied, setCopied] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -292,7 +292,11 @@ export default function Layout() {
       })
       .then((data) => {
         if (data && !data.error) {
-          setNotifications({ orders: data.orders, recharges: data.recharges });
+          setNotifications({ 
+            orders: data.orders, 
+            recharges: data.recharges,
+            messages: data.messages || 0
+          });
         }
       })
       .catch(console.error);
@@ -348,12 +352,24 @@ export default function Layout() {
         }
       });
 
+      socket.on('new_message', ({ userId }: { userId: number }) => {
+        if (userId === user.id) {
+          fetchNotifications();
+        }
+      });
+
+      socket.on('new_global_message', () => {
+        fetchNotifications();
+      });
+
       return () => {
         socket.off('balance_updated');
         socket.off('order_created');
         socket.off('recharge_requested');
         socket.off('order_updated');
         socket.off('recharge_updated');
+        socket.off('new_message');
+        socket.off('new_global_message');
       };
     }
   }, [socket, user]);
@@ -406,13 +422,13 @@ export default function Layout() {
     { to: "/recharge", icon: <CreditCard className="w-5 h-5 ml-3" />, text: "شحن الرصيد" },
     { to: "/orders", icon: <ListOrdered className="w-5 h-5 ml-3" />, text: "طلباتي", badge: notifications.orders + notifications.recharges },
     { to: "/promo-codes", icon: <Gift className="w-5 h-5 ml-3" />, text: "أكواد الإحالة" },
-    { to: "/mail", icon: <Mail className="w-5 h-5 ml-3" />, text: "البريد" },
+    { to: "/mail", icon: <Mail className="w-5 h-5 ml-3" />, text: "البريد", badge: notifications.messages },
     { to: "/instructions", icon: <HelpCircle className="w-5 h-5 ml-3" />, text: "التعليمات" },
     { to: "/contact-us", icon: <Phone className="w-5 h-5 ml-3" />, text: "اتصل بنا" },
   ];
 
   const links = user.role === "admin" ? adminLinks : userLinks;
-  const totalNotifications = notifications.orders + notifications.recharges;
+  const totalNotifications = notifications.orders + notifications.recharges + notifications.messages;
 
   const handleLogoutConfirm = () => {
     logout();
@@ -468,9 +484,9 @@ export default function Layout() {
             <div className="flex items-center space-x-3 space-x-reverse">
               <Link to="/mail" className="relative p-2 text-gray-600 hover:text-indigo-600 transition-colors">
                 <Mail className="w-6 h-6" />
-                {totalNotifications > 0 && (
+                {notifications.messages > 0 && (
                   <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white border-2 border-white">
-                    {totalNotifications}
+                    {notifications.messages}
                   </span>
                 )}
               </Link>
