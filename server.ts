@@ -260,13 +260,20 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
   }
 
   try {
+    const host = process.env.EMAIL_HOST || "smtp.office365.com";
+    const isGmail = host.includes("gmail.com");
+    
     const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "smtp.gmail.com",
-      port: 465,
-      secure: true, // true for 465, false for other ports
+      host: host,
+      port: isGmail ? 465 : 587,
+      secure: isGmail, // true for 465, false for 587
       auth: {
         user: emailUser,
         pass: emailPass
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false
       }
     });
 
