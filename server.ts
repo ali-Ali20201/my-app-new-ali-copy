@@ -262,20 +262,29 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
+  console.log(`[Email Debug] sendEmail called for: ${to}, subject: ${subject}`);
   const resendApiKey = process.env.RESEND_API_KEY;
   
   // Try Resend first if API key is available
   if (resendApiKey) {
     console.log(`[Email Debug] Attempting to send email via Resend to: ${to}`);
-    const resend = new Resend(resendApiKey);
     try {
-      const { data, error } = await resend.emails.send({
-        from: 'Ali Cash <onboarding@resend.dev>', // Default Resend domain, user can change if they have a custom domain
+      const resend = new Resend(resendApiKey);
+      
+      // Add timeout for Resend
+      const resendPromise = resend.emails.send({
+        from: 'Ali Cash <onboarding@resend.dev>',
         to: [to],
         subject: subject,
         text: text || "",
         html: html || text || "",
       });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Resend Timeout")), 10000)
+      );
+
+      const { data, error } = await Promise.race([resendPromise, timeoutPromise]) as any;
       
       if (error) {
         console.error("[Email Debug] Resend Error:", error);
@@ -295,14 +304,27 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
   const emailUser = process.env.EMAIL_USER;
   const emailPass = process.env.EMAIL_PASS;
 
+  console.log(`[Email Debug] EMAIL_USER set: ${!!emailUser}, EMAIL_PASS set: ${!!emailPass}`);
+
   if (!emailUser || !emailPass) {
     throw new Error("لم يتم ضبط إعدادات البريد الإلكتروني (EMAIL_USER/EMAIL_PASS)");
   }
 
   try {
-    const host = process.env.EMAIL_HOST || "smtp.office365.com";
+    let host = process.env.EMAIL_HOST;
+    
+    // Auto-detect host if not provided
+    if (!host) {
+      if (emailUser.toLowerCase().endsWith("@gmail.com")) {
+        host = "smtp.gmail.com";
+      } else if (emailUser.toLowerCase().endsWith("@outlook.com") || emailUser.toLowerCase().endsWith("@hotmail.com") || emailUser.toLowerCase().endsWith("@live.com")) {
+        host = "smtp.office365.com";
+      } else {
+        host = "smtp.office365.com"; // Default fallback
+      }
+    }
+
     const isGmail = host.includes("gmail.com");
-    const isOutlook = host.includes("office365") || host.includes("outlook");
     
     const transporter = nodemailer.createTransport({
       host: host,
@@ -314,7 +336,10 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
       },
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,   // 10 seconds
+      socketTimeout: 10000      // 10 seconds
     });
 
     const info = await transporter.sendMail({
@@ -545,6 +570,7 @@ app.post("/api/auth/verify-login", asyncHandler(async (req: any, res: any) => {
 
 app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) => {
   const { email } = req.body;
+  console.log(`[Auth Debug] Forgot password request for: ${email}`);
   const user = (await db
     .prepare("SELECT * FROM users WHERE email = ?")
     .get(email)) as any;
