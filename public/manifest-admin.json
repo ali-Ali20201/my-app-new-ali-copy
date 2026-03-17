@@ -1,0 +1,25 @@
+{
+  "id": "/adminali20112024-app",
+  "name": "علي كاش ادمن",
+  "short_name": "علي كاش ادمن",
+  "description": "تطبيق التحكم الخاص بالإدارة",
+  "start_url": "/adminali20112024?app=admin",
+  "scope": "/adminali20112024",
+  "display": "standalone",
+  "background_color": "#b91c1c",
+  "theme_color": "#b91c1c",
+  "icons": [
+    {
+      "src": "/icon-admin.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-admin.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

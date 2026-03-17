@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#4f46e5" />
+    <title>علي كاش</title>
+    
+    <!-- السكربت الذكي الذي يختار المانيفست حسب الرابط -->
+    <script>
+      var link = document.createElement('link');
+      link.rel = 'manifest';
+      if (window.location.pathname.startsWith('/adminali20112024')) {
+        link.href = '/manifest-admin.json';
+      } else {
+        link.href = '/manifest-user.json';
+      }
+      document.head.appendChild(link);
+    </script>
+
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').then(function(registration) {
+          console.log('ServiceWorker registration successful with scope: ', registration.scope);
+        }, function(err) {
+          console.log('ServiceWorker registration failed: ', err);
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@layer base {
+  html, body {
+    overscroll-behavior-y: none; /* هذا السطر يمنع السحب للتحديث */
+    background-color: #f3f4f6;
+  }
+}
