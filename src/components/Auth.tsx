@@ -103,18 +103,18 @@ export default function Auth() {
       const res = await apiFetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim() }),
       });
-      const data = await res.json().catch(() => ({ error: "حدث خطأ في الاتصال" }));
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         setMessage("تم إرسال كود التحقق إلى بريدك الإلكتروني");
         setShowForgot(false);
         setShowReset(true);
       } else {
-        setError(data.error);
+        setError(data?.error || "حدث خطأ غير متوقع");
       }
     } catch (err) {
-      setError("حدث خطأ في الاتصال");
+      setError("حدث خطأ في الاتصال بالخادم");
     } finally {
       setLoading(false);
     }
@@ -176,6 +176,8 @@ export default function Auth() {
               <input
                 type="text"
                 required
+                name="login-verification-code"
+                autoComplete="one-time-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 className="w-full pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center tracking-widest text-lg"
@@ -265,6 +267,8 @@ export default function Auth() {
               <input
                 type="text"
                 required
+                name="verification-code"
+                autoComplete="one-time-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 className="w-full pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -279,6 +283,8 @@ export default function Auth() {
               <input
                 type={showPassword ? "text" : "password"}
                 required
+                name="new-password"
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full pr-10 pl-10 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
