@@ -147,6 +147,18 @@ const isValidId = (id: any): boolean => {
   const n = Number(id);
   return Number.isInteger(n) && n > 0;
 };
+// Explicit routes for icons to ensure they are served correctly
+app.get("/app-icon.png", (req, res) => {
+  const iconPath = path.join(__dirname, "public", "app-icon.png");
+  console.log(`[Icon Debug] Serving app-icon.png from: ${iconPath}`);
+  res.sendFile(iconPath);
+});
+app.get("/app-icon-admin.png", (req, res) => {
+  const iconPath = path.join(__dirname, "public", "app-icon-admin.png");
+  console.log(`[Icon Debug] Serving app-icon-admin.png from: ${iconPath}`);
+  res.sendFile(iconPath);
+});
+
 // Test route
 app.get("/test", (req, res) => {
   res.send("Server is running!");
@@ -250,18 +262,47 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
-  console.log(`[Email Debug] Attempting to send email via Microsoft (Outlook) to: ${to}`);
+  const resendApiKey = process.env.RESEND_API_KEY;
+  
+  // Try Resend first if API key is available
+  if (resendApiKey) {
+    console.log(`[Email Debug] Attempting to send email via Resend to: ${to}`);
+    const resend = new Resend(resendApiKey);
+    try {
+      const { data, error } = await resend.emails.send({
+        from: 'Ali Cash <onboarding@resend.dev>', // Default Resend domain, user can change if they have a custom domain
+        to: [to],
+        subject: subject,
+        text: text || "",
+        html: html || text || "",
+      });
+      
+      if (error) {
+        console.error("[Email Debug] Resend Error:", error);
+        // Fallback to SMTP if Resend fails
+      } else {
+        console.log(`[Email Debug] Email sent successfully via Resend: ${data?.id}`);
+        return data;
+      }
+    } catch (err) {
+      console.error("[Email Debug] Resend Exception:", err);
+      // Fallback to SMTP
+    }
+  }
+
+  console.log(`[Email Debug] Attempting to send email via SMTP to: ${to}`);
   
   const emailUser = process.env.EMAIL_USER;
   const emailPass = process.env.EMAIL_PASS;
 
   if (!emailUser || !emailPass) {
-    throw new Error("EMAIL_USER or EMAIL_PASS is not set in environment variables");
+    throw new Error("لم يتم ضبط إعدادات البريد الإلكتروني (EMAIL_USER/EMAIL_PASS)");
   }
 
   try {
     const host = process.env.EMAIL_HOST || "smtp.office365.com";
     const isGmail = host.includes("gmail.com");
+    const isOutlook = host.includes("office365") || host.includes("outlook");
     
     const transporter = nodemailer.createTransport({
       host: host,
@@ -272,7 +313,6 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
         pass: emailPass
       },
       tls: {
-        // Do not fail on invalid certs
         rejectUnauthorized: false
       }
     });
@@ -285,11 +325,19 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
       html: html || text
     });
 
-    console.log(`[Email Debug] Email sent successfully: ${info.messageId}`);
+    console.log(`[Email Debug] Email sent successfully via SMTP: ${info.messageId}`);
     return info;
   } catch (error: any) {
-    console.error("[Email Debug] Microsoft Email Error:", error);
-    throw new Error(`فشل إرسال البريد عبر Microsoft: ${error.message}`);
+    console.error("[Email Debug] SMTP Email Error:", error);
+    
+    let userMessage = error.message;
+    if (error.message.includes("535 5.7.139")) {
+      userMessage = "فشل المصادقة: قامت مايكروسوفت بتعطيل 'Basic Authentication'. يرجى التأكد من تفعيل 'SMTP AUTH' في إعدادات حسابك أو استخدام 'App Password' وإذا استمرت المشكلة يفضل استخدام بريد Gmail أو خدمة Resend.";
+    } else if (error.message.includes("Invalid login")) {
+      userMessage = "بيانات تسجيل الدخول غير صحيحة. يرجى التأكد من البريد وكلمة السر (أو كلمة سر التطبيق).";
+    }
+    
+    throw new Error(`فشل إرسال البريد: ${userMessage}`);
   }
 }
 
@@ -2558,6 +2606,9 @@ async function startServer() {
 
   if (!isProd) {
     try {
+      // Serve public folder directly in dev mode as well
+      app.use(express.static(path.resolve(__dirname, "public")));
+      
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
@@ -2567,10 +2618,12 @@ async function startServer() {
       console.error("Failed to initialize Vite middleware:", e);
     }
   } else {
-    // 1. تحديد المسار الصحيح للمجلد
+  // 1. تحديد المسار الصحيح للمجلد
     const distPath = path.resolve(__dirname, "dist");
+    const publicPath = path.resolve(__dirname, "public");
     
-    // 2. خدمة ملفات الواجهة الأمامية
+    // 2. خدمة ملفات الواجهة الأمامية والملفات العامة
+    app.use(express.static(publicPath));
     app.use(express.static(distPath));
 
     // 3. توجيه جميع الطلبات (عدا الـ API) لملف index.html
