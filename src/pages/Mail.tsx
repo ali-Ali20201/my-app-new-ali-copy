@@ -17,6 +17,8 @@ export default function Mail() {
 
   useEffect(() => {
     if (!user || typeof user.id !== 'number') return;
+    
+    // Fetch messages
     apiFetch(`/api/messages/${user.id}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch messages');
@@ -27,6 +29,16 @@ export default function Mail() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    // Mark messages as read
+    apiFetch('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: user.id, type: 'messages' })
+    }).then(() => {
+      // Refresh notifications badge in layout
+      window.dispatchEvent(new CustomEvent('refreshNotifications'));
+    }).catch(console.error);
   }, [user]);
 
   if (loading) {
