@@ -116,9 +116,14 @@ export default function Recharge() {
               type="text"
               required
               value={transactionNumber}
-              onChange={(e) => setTransactionNumber(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (/^[0-9]*$/.test(val)) {
+                  setTransactionNumber(val);
+                }
+              }}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border"
-              placeholder="أدخل رقم العملية للتحويل"
+              placeholder="أدخل رقم العملية للتحويل (أرقام فقط)"
             />
           </div>
 
