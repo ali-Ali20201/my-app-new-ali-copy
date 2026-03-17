@@ -131,12 +131,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Telegram Webhook - Extremely permissive
-app.all("/api/telegram-webhook*", (req, res) => {
-  console.log(`[Telegram Debug] Webhook reached! URL: ${req.url}`);
-  res.status(200).send('OK');
-});
-
 // Async handler wrapper for Express routes
 const asyncHandler = (fn: any) => (req: any, res: any, next: any) => {
   Promise.resolve(fn(req, res, next)).catch((err) => {
@@ -1255,6 +1249,8 @@ app.post("/api/products", asyncHandler(async (req: any, res: any) => {
       old_price,
       currency,
       profit_try,
+      has_quantity,
+      quantity,
     } = req.body;
     console.log("Adding product:", {
       name,
@@ -1264,10 +1260,12 @@ app.post("/api/products", asyncHandler(async (req: any, res: any) => {
       category_id,
       currency,
       profit_try,
+      has_quantity,
+      quantity,
     });
     const result = await db
       .prepare(
-        "INSERT INTO products (name, description, image_url, price, category_id, old_price, currency, profit_try) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO products (name, description, image_url, price, category_id, old_price, currency, profit_try, has_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         name,
@@ -1278,6 +1276,8 @@ app.post("/api/products", asyncHandler(async (req: any, res: any) => {
         old_price || null,
         currency || "$",
         profit_try || 0,
+        has_quantity || false,
+        quantity || 0,
       );
     console.log("Product added with ID:", result.lastInsertRowid);
     const io = app.get("io");
@@ -1301,10 +1301,12 @@ app.put("/api/products/:id", asyncHandler(async (req: any, res: any) => {
     old_price,
     currency,
     profit_try,
+    has_quantity,
+    quantity,
   } = req.body;
   await db
     .prepare(
-      "UPDATE products SET name = ?, description = ?, image_url = ?, price = ?, category_id = ?, old_price = ?, currency = ?, profit_try = ? WHERE id = ?",
+      "UPDATE products SET name = ?, description = ?, image_url = ?, price = ?, category_id = ?, old_price = ?, currency = ?, profit_try = ?, has_quantity = ?, quantity = ? WHERE id = ?",
     )
     .run(
       name,
@@ -1315,6 +1317,8 @@ app.put("/api/products/:id", asyncHandler(async (req: any, res: any) => {
       old_price || null,
       currency || "$",
       profit_try || 0,
+      has_quantity || false,
+      quantity || 0,
       req.params.id,
     );
   const io = app.get("io");
@@ -1451,74 +1455,6 @@ app.put("/api/settings", asyncHandler(async (req: any, res: any) => {
   }
 }));
 
-// Telegram Notification Helper
-// Simple notification queue to handle rate limiting
-let notificationQueue = Promise.resolve();
-
-async function sendTelegramNotification(message: string, keyboard?: any, retries = 3) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-
-  if (!token || !chatId) {
-    console.log("[Telegram Debug] Telegram credentials not set, skipping notification.");
-    return;
-  }
-
-  // Chain the notification to the queue
-  notificationQueue = notificationQueue.then(async () => {
-    for (let i = 0; i < retries; i++) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
-      try {
-        const url = `https://api.telegram.org/bot${token}/sendMessage`;
-        const body: any = {
-          chat_id: chatId,
-          text: message,
-          parse_mode: "HTML"
-        };
-        if (keyboard) {
-          body.reply_markup = keyboard;
-        }
-        
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error(`[Telegram Debug] API error (attempt ${i + 1}):`, errorData);
-          if (errorData.error_code === 429) {
-            const retryAfter = (errorData.parameters?.retry_after || 5) * 1000;
-            console.log(`[Telegram Debug] Rate limited, retrying after ${retryAfter}ms`);
-            await new Promise(resolve => setTimeout(resolve, retryAfter));
-            continue; // Retry
-          }
-          throw new Error(`Telegram API error: ${response.statusText}`);
-        } else {
-          console.log("[Telegram Debug] Notification sent successfully");
-          return; // Success
-        }
-      } catch (error: any) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          console.error(`[Telegram Debug] Request timed out (attempt ${i + 1})`);
-        } else {
-          console.error(`[Telegram Debug] Failed to send notification (attempt ${i + 1}):`, error);
-        }
-        if (i === retries - 1) throw error; // Rethrow on last attempt
-        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
-      }
-    }
-  }).catch(err => {
-    console.error("[Telegram Debug] Notification queue error:", err);
-  });
-}
-
 // Recharge Requests
 app.post("/api/recharge", asyncHandler(async (req: any, res: any) => {
   const { user_id, transaction_number, amount, currency } = req.body;
@@ -1535,19 +1471,6 @@ app.post("/api/recharge", asyncHandler(async (req: any, res: any) => {
     io.emit("recharge_requested");
     sendPushToAdmins("طلب شحن جديد", "يوجد طلب شحن رصيد جديد بانتظار المراجعة");
   }
-
-  // Send Notification to Admin
-  const user = (await db.prepare("SELECT name, a_code FROM users WHERE id = ?").get(user_id)) as any;
-  const userName = user?.name || "غير معروف";
-  const userCode = user?.a_code || "غير معروف";
-  const message = `<b>طلب شحن جديد</b>\n\nالمستخدم: ${userName}\nالأيدي: <code>${userCode}</code>\nالمبلغ: ${amount} ${currency}\nالرقم: ${transaction_number}`;
-  const keyboard = {
-    inline_keyboard: [[
-      { text: "قبول", callback_data: `recharge_accept:${result.lastInsertRowid}:${user_id}` },
-      { text: "رفض", callback_data: `recharge_reject:${result.lastInsertRowid}:${user_id}` }
-    ]]
-  };
-  sendTelegramNotification(message, keyboard);
 
   res.json({ id: result.lastInsertRowid });
 }));
@@ -1918,6 +1841,10 @@ app.post("/api/orders", asyncHandler(async (req: any, res: any) => {
   if (!user || !product)
     return res.status(404).json({ error: "User or Product not found" });
 
+  if (product.has_quantity && product.quantity <= 0) {
+    return res.status(400).json({ error: "لقد نفد المنتج" });
+  }
+
   const rates = await getRates();
   const basePrice = product.currency === 'TRY' || product.currency === 'ل.ت'
     ? product.price + (product.profit_try || 0)
@@ -1987,6 +1914,14 @@ app.post("/api/orders", asyncHandler(async (req: any, res: any) => {
     await db
       .prepare("UPDATE users SET balance = balance - ? WHERE id = ?")
       .run(productPriceInUserCurrency, user_id);
+    
+    // Deduct quantity if applicable
+    if (product.has_quantity) {
+      await db
+        .prepare("UPDATE products SET quantity = quantity - 1 WHERE id = ?")
+        .run(product_id);
+    }
+
     // Create order
     const result = await db
       .prepare(
@@ -2008,22 +1943,6 @@ app.post("/api/orders", asyncHandler(async (req: any, res: any) => {
     io.emit("order_created");
     sendPushToAdmins("طلب منتج جديد", "يوجد طلب شراء جديد بانتظار المراجعة");
   }
-
-  // Send Notification to Admin
-  const productInfo = (await db.prepare("SELECT name FROM products WHERE id = ?").get(product_id)) as any;
-  const userInfo = (await db.prepare("SELECT name, a_code FROM users WHERE id = ?").get(user_id)) as any;
-  const userName = userInfo?.name || "غير معروف";
-  const userCode = userInfo?.a_code || "غير معروف";
-  const productName = productInfo?.name || "منتج غير معروف";
-  
-  const message = `<b>طلب شراء جديد</b>\n\nالمستخدم: ${userName}\nالأيدي: <code>${userCode}</code>\nالمنتج: ${productName}\nالسعر: ${productPriceInUserCurrency} ${user.preferred_currency}`;
-  const keyboard = {
-    inline_keyboard: [[
-      { text: "قبول", callback_data: `order_accept:${orderId}:${user_id}` },
-      { text: "رفض", callback_data: `order_reject:${orderId}:${user_id}` }
-    ]]
-  };
-  sendTelegramNotification(message, keyboard);
 
   res.json({ success: true });
 }));
@@ -2163,8 +2082,26 @@ async function startServer() {
           category_id INTEGER,
           currency TEXT DEFAULT '$',
           old_price REAL,
+          profit_try REAL DEFAULT 0,
+          has_quantity BOOLEAN DEFAULT FALSE,
+          quantity INTEGER DEFAULT 0,
           FOREIGN KEY(category_id) REFERENCES categories(id)
       );
+      
+      -- Add columns if they don't exist
+      DO $$ 
+      BEGIN 
+          BEGIN
+              ALTER TABLE products ADD COLUMN has_quantity BOOLEAN DEFAULT FALSE;
+          EXCEPTION
+              WHEN duplicate_column THEN null;
+          END;
+          BEGIN
+              ALTER TABLE products ADD COLUMN quantity INTEGER DEFAULT 0;
+          EXCEPTION
+              WHEN duplicate_column THEN null;
+          END;
+      END $$;
       CREATE TABLE IF NOT EXISTS recharge_requests (
           id SERIAL PRIMARY KEY,
           user_id INTEGER,
@@ -2554,132 +2491,6 @@ async function startServer() {
     res.status(status).send(message);
   });
 
-  // Telegram Webhook
-  app.all("/api/telegram-webhook", asyncHandler(async (req: any, res: any) => {
-    console.log("[Telegram Debug] Webhook reached!");
-    const update = req.body;
-    if (update && update.callback_query) {
-      console.log("[Telegram Debug] Callback query received:", update.callback_query);
-      const { id, data, message } = update.callback_query;
-      const parts = data.split(":");
-      const action = parts[0];
-      const requestId = parts[1];
-      const userId = parts[2];
-      
-      if (action.startsWith("recharge_")) {
-        const status = action === "recharge_accept" ? "accepted" : "rejected";
-        
-        const request = (await db
-          .prepare("SELECT * FROM recharge_requests WHERE id = ?")
-          .get(requestId)) as any;
-          
-        console.log("[Telegram Debug] Recharge request found:", !!request, "Status:", request?.status);
-        if (request && request.status === "pending") {
-          await db.transaction(async () => {
-            await db
-              .prepare("UPDATE recharge_requests SET status = ? WHERE id = ?")
-              .run(status, requestId);
-            if (status === "accepted") {
-              const user = (await db
-                .prepare("SELECT preferred_currency FROM users WHERE id = ?")
-                .get(userId)) as any;
-              const rates = await getRates();
-              const amountInUserCurrency = convertCurrency(
-                request.amount,
-                request.currency,
-                user.preferred_currency,
-                rates,
-              );
-
-              await db
-                .prepare("UPDATE users SET balance = balance + ? WHERE id = ?")
-                .run(amountInUserCurrency, userId);
-              
-              const title = "تم قبول طلب الشحن";
-              const body = `تم قبول طلب شحنك وأضيف إلى حسابك ${amountInUserCurrency} ${user.preferred_currency}.`;
-              sendPushNotification(Number(userId), title, body);
-              await db.prepare("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)")
-                .run(userId, title, body);
-            } else {
-              const title = "تعذر قبول طلب الشحن";
-              const body = `لقد تعذر قبول طلب الشحن الخاص بك بمبلغ ${request.amount} ${request.currency}.`;
-              sendPushNotification(Number(userId), title, body);
-              await db.prepare("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)")
-                .run(userId, title, body);
-            }
-          });
-          
-          // Update Telegram message
-          const newText = message.text + `\n\n<b>تم ${status === "accepted" ? "القبول" : "الرفض"}</b>`;
-          await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/editMessageText`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: message.chat.id,
-              message_id: message.message_id,
-              text: newText,
-              parse_mode: "HTML"
-            })
-          });
-        }
-      } else if (action.startsWith("order_")) {
-        const status = action === "order_accept" ? "accepted" : "rejected";
-        
-        const order = (await db
-          .prepare("SELECT * FROM orders WHERE id = ?")
-          .get(requestId)) as any;
-          
-        console.log("[Telegram Debug] Order found:", !!order, "Status:", order?.status);
-        if (order && order.status === "pending") {
-          await db.transaction(async () => {
-            await db
-              .prepare("UPDATE orders SET status = ? WHERE id = ?")
-              .run(status, requestId);
-              
-            if (status === "rejected") {
-              // Refund user
-              await db
-                .prepare("UPDATE users SET balance = balance + ? WHERE id = ?")
-                .run(order.paid_price || 0, userId);
-              
-              const title = "تعذر قبول طلب الشراء";
-              const body = `لقد تعذر قبول طلبك وتم استعادة المبلغ لرصيدك.`;
-              sendPushNotification(Number(userId), title, body);
-              await db.prepare("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)")
-                .run(userId, title, body);
-            } else {
-              const title = "تم قبول طلب الشراء";
-              const body = `تم قبول طلبك بنجاح! لقد وصلتك رسالة بريد بالتفاصيل.`;
-              sendPushNotification(Number(userId), title, body);
-              await db.prepare("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)")
-                .run(userId, title, body);
-            }
-          });
-          
-          // Update Telegram message
-          const newText = message.text + `\n\n<b>تم ${status === "accepted" ? "القبول" : "الرفض"}</b>`;
-          await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/editMessageText`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: message.chat.id,
-              message_id: message.message_id,
-              text: newText,
-              parse_mode: "HTML"
-            })
-          });
-        }
-      }
-      
-      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callback_query_id: id })
-      });
-    }
-    res.sendStatus(200);
-  }));
-
   // Global Error Handler
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[Global Error Handler] Error:", err);
@@ -2726,25 +2537,6 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   server.listen(PORT as number, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
-    
-    // Register Telegram Webhook
-    if (process.env.TELEGRAM_BOT_TOKEN) {
-      const botToken = process.env.TELEGRAM_BOT_TOKEN;
-      const appUrl = process.env.APP_URL;
-      if (appUrl) {
-        const webhookUrl = `${appUrl}/api/telegram-webhook`;
-        const url = `https://api.telegram.org/bot${botToken}/setWebhook`;
-        
-        fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: webhookUrl })
-        })
-        .then(res => res.json())
-        .then(data => console.log("Webhook registration:", data))
-        .catch(err => console.error("Failed to register webhook:", err));
-      }
-    }
   });
 }
 
