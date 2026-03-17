@@ -500,25 +500,33 @@ app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) =>
     .prepare("UPDATE users SET reset_code = ?, reset_expires = ? WHERE id = ?")
     .run(resetCode, expires.toISOString(), user.id);
 
-  // Send Email (Fire and forget to prevent blocking)
-  sendEmail({
-    to: email,
-    subject: "كود إعادة تعيين كلمة السر",
-    html: `
-      <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
-        <h2 style="color: #4f46e5;">إعادة تعيين كلمة السر</h2>
-        <p style="font-size: 16px; color: #333;">لقد طلبت إعادة تعيين كلمة السر الخاصة بك.</p>
-        <p style="font-size: 16px; color: #333;">كود إعادة التعيين الخاص بك هو:</p>
-        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 200px;">
-          <h1 style="color: #111827; margin: 0; font-size: 32px; letter-spacing: 5px;">${resetCode}</h1>
+  // Send Email
+  try {
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+      throw new Error("لم يتم إعداد بريد الإرسال في النظام (GMAIL_USER/GMAIL_PASS)");
+    }
+
+    await sendEmail({
+      to: email,
+      subject: "كود إعادة تعيين كلمة السر",
+      html: `
+        <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
+          <h2 style="color: #4f46e5;">إعادة تعيين كلمة السر</h2>
+          <p style="font-size: 16px; color: #333;">لقد طلبت إعادة تعيين كلمة السر الخاصة بك.</p>
+          <p style="font-size: 16px; color: #333;">كود إعادة التعيين الخاص بك هو:</p>
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 200px;">
+            <h1 style="color: #111827; margin: 0; font-size: 32px; letter-spacing: 5px;">${resetCode}</h1>
+          </div>
+          <p style="color: #6b7280; font-size: 14px;">هذا الكود صالح لمدة 15 دقيقة فقط.</p>
+          <p style="color: #ef4444; font-size: 14px; margin-top: 20px;">إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.</p>
         </div>
-        <p style="color: #6b7280; font-size: 14px;">هذا الكود صالح لمدة 15 دقيقة فقط.</p>
-        <p style="color: #ef4444; font-size: 14px; margin-top: 20px;">إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.</p>
-      </div>
-    `,
-  }).catch(err => console.error("Background email error:", err));
-  
-  res.json({ success: true });
+      `,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Email error during forgot password:", err);
+    res.status(500).json({ error: `فشل في إرسال البريد الإلكتروني: ${err.message}` });
+  }
 }));
 
 app.post("/api/auth/reset-password", asyncHandler(async (req: any, res: any) => {
@@ -559,8 +567,12 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
       .prepare("UPDATE users SET reset_code = ?, reset_expires = ? WHERE id = ?")
       .run(code, expires, user.id);
 
-    // Send Email (Fire and forget to prevent blocking)
-    sendEmail({
+    // Send Email
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+      throw new Error("لم يتم إعداد بريد الإرسال في النظام (GMAIL_USER/GMAIL_PASS)");
+    }
+
+    await sendEmail({
       to: email,
       subject: "كود التحقق لتعديل الملف الشخصي",
       html: `
@@ -575,7 +587,7 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
           <p style="color: #ef4444; font-size: 14px; margin-top: 20px;">إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.</p>
         </div>
       `,
-    }).catch(err => console.error("Background email error (edit code):", err));
+    });
     res.json({ success: true });
   } catch (err: any) {
     console.error("Send edit code error:", err);
@@ -861,7 +873,7 @@ app.get("/api/notifications/:userId", asyncHandler(async (req: any, res: any) =>
         "SELECT COUNT(*) as count FROM recharge_requests WHERE status = 'pending'",
       )
       .get()) as any;
-    res.json({ orders: orders.count, recharges: recharges.count });
+    res.json({ orders: orders.count, recharges: recharges.count, messages: 0 });
   } else {
     const orders = (await db
       .prepare(
@@ -873,28 +885,45 @@ app.get("/api/notifications/:userId", asyncHandler(async (req: any, res: any) =>
         "SELECT COUNT(*) as count FROM recharge_requests WHERE user_id = ? AND status != 'pending' AND user_read = 0",
       )
       .get(user.id)) as any;
-    res.json({ orders: orders.count, recharges: recharges.count });
+    const messages = (await db
+      .prepare(
+        "SELECT COUNT(*) as count FROM messages WHERE (user_id = ? OR user_id IS NULL) AND is_read = FALSE",
+      )
+      .get(user.id)) as any;
+    res.json({ orders: orders.count, recharges: recharges.count, messages: messages.count });
   }
 }));
 
 app.post("/api/notifications/read", asyncHandler(async (req: any, res: any) => {
-  const { user_id } = req.body;
+  const { user_id, type } = req.body;
   if (!user_id) return res.status(400).json({ error: "Missing user_id" });
 
   const user = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
     .get(user_id)) as any;
+  
   if (user && user.role !== "admin") {
-    await db
-      .prepare(
-        "UPDATE orders SET user_read = 1 WHERE user_id = ? AND status != 'pending'",
-      )
-      .run(user_id);
-    await db
-      .prepare(
-        "UPDATE recharge_requests SET user_read = 1 WHERE user_id = ? AND status != 'pending'",
-      )
-      .run(user_id);
+    if (!type || type === 'orders') {
+      await db
+        .prepare(
+          "UPDATE orders SET user_read = 1 WHERE user_id = ? AND status != 'pending'",
+        )
+        .run(user_id);
+    }
+    if (!type || type === 'recharges') {
+      await db
+        .prepare(
+          "UPDATE recharge_requests SET user_read = 1 WHERE user_id = ? AND status != 'pending'",
+        )
+        .run(user_id);
+    }
+    if (!type || type === 'messages') {
+      await db
+        .prepare(
+          "UPDATE messages SET is_read = TRUE WHERE user_id = ? OR user_id IS NULL",
+        )
+        .run(user_id);
+    }
   }
 
   res.json({ success: true });
@@ -952,6 +981,17 @@ app.post("/api/admin/messages", asyncHandler(async (req: any, res: any) => {
   await db
     .prepare("INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)")
     .run(userId, title, content);
+
+  // Send Push Notification and Socket Event
+  const io = req.app.get("io");
+  if (targetType === "all") {
+    if (io) io.emit("new_global_message", { title });
+    // Sending push to all users might be heavy, but let's do it for specific if requested
+  } else if (userId) {
+    if (io) io.emit("new_message", { userId, title });
+    sendPushNotification(userId, "رسالة جديدة", title).catch(console.error);
+  }
+
   res.json({ success: true });
 }));
 
