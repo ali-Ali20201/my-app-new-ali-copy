@@ -272,7 +272,7 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
         pass: emailPass
       },
       tls: {
-        ciphers: 'SSLv3',
+        // Do not fail on invalid certs
         rejectUnauthorized: false
       }
     });
