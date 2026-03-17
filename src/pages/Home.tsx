@@ -15,6 +15,9 @@ type Product = {
   old_price: number | null;
   category_id: number | null;
   currency: string;
+  profit_try: number;
+  has_quantity: boolean;
+  quantity: number;
 };
 
 type Category = {
@@ -225,8 +228,15 @@ export default function Home() {
           {currentProducts.map((product) => (
             <div
               key={product.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden"
             >
+              {product.has_quantity && product.quantity <= 0 && (
+                <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                  <div className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg transform -rotate-3 border-2 border-white">
+                    لقد نفد المنتج
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-4 flex-1">
                 {product.image_url && (
                   <img
@@ -290,7 +300,8 @@ export default function Home() {
                     }
                     setSelectedProduct(product);
                   }}
-                  className="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+                  disabled={product.has_quantity && product.quantity <= 0}
+                  className="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   <ShoppingCart className="w-4 h-4 ml-2" />
                   شراء
