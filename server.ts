@@ -250,34 +250,50 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
-  console.log(`[Email Debug] Attempting to send email via Resend to: ${to}`);
+  console.log(`[Email Debug] Attempting to send email via Mailtrap to: ${to}`);
   
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new Error("RESEND_API_KEY is not set in environment variables");
+  const token = process.env.MAILTRAP_TOKEN;
+  const senderEmail = process.env.SENDER_EMAIL;
+
+  if (!token || !senderEmail) {
+    throw new Error("MAILTRAP_TOKEN or SENDER_EMAIL is not set in environment variables");
   }
 
-  const resend = new Resend(apiKey);
-
   try {
-    const { data, error } = await resend.emails.send({
-      from: 'Ali Cash <onboarding@resend.dev>', // Default Resend domain for testing
-      to: [to],
-      subject: subject,
-      text: text || "",
-      html: html || "",
+    const response = await fetch('https://send.api.mailtrap.io/api/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: {
+          email: senderEmail,
+          name: "Ali Cash"
+        },
+        to: [
+          {
+            email: to
+          }
+        ],
+        subject: subject,
+        text: text || "",
+        html: html || text
+      })
     });
 
-    if (error) {
-      console.error("[Email Debug] Resend Error:", error);
-      throw new Error(`فشل إرسال البريد عبر Resend: ${error.message}`);
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error("[Email Debug] Mailtrap Error:", result);
+      throw new Error(`فشل إرسال البريد عبر Mailtrap: ${result.errors?.join(', ') || 'خطأ غير معروف'}`);
     }
 
-    console.log(`[Email Debug] Email sent successfully! ID: ${data?.id}`);
-    return data;
+    console.log(`[Email Debug] Email sent successfully!`);
+    return result;
   } catch (error: any) {
     console.error("[Email Debug] Unexpected Error:", error);
-    throw new Error(`حدث خطأ غير متوقع أثناء إرسال البريد: ${error.message}`);
+    throw new Error(`حدث خطأ أثناء إرسال البريد: ${error.message}`);
   }
 }
 
@@ -499,8 +515,8 @@ app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) =>
 
   // Send Email
   try {
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (RESEND_API_KEY)");
+    if (!process.env.MAILTRAP_TOKEN) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (MAILTRAP_TOKEN)");
     }
 
     await sendEmail({
@@ -565,8 +581,8 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
       .run(code, expires, user.id);
 
     // Send Email
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (RESEND_API_KEY)");
+    if (!process.env.MAILTRAP_TOKEN) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (MAILTRAP_TOKEN)");
     }
 
     await sendEmail({
