@@ -250,50 +250,39 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
-  console.log(`[Email Debug] Attempting to send email via Mailtrap to: ${to}`);
+  console.log(`[Email Debug] Attempting to send email via Microsoft (Outlook) to: ${to}`);
   
-  const token = process.env.MAILTRAP_TOKEN;
-  const senderEmail = process.env.SENDER_EMAIL;
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
 
-  if (!token || !senderEmail) {
-    throw new Error("MAILTRAP_TOKEN or SENDER_EMAIL is not set in environment variables");
+  if (!emailUser || !emailPass) {
+    throw new Error("EMAIL_USER or EMAIL_PASS is not set in environment variables");
   }
 
   try {
-    const response = await fetch('https://send.api.mailtrap.io/api/send', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: {
-          email: senderEmail,
-          name: "Ali Cash"
-        },
-        to: [
-          {
-            email: to
-          }
-        ],
-        subject: subject,
-        text: text || "",
-        html: html || text
-      })
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || "smtp.gmail.com",
+      port: 465,
+      secure: true, // true for 465, false for other ports
+      auth: {
+        user: emailUser,
+        pass: emailPass
+      }
     });
 
-    const result = await response.json();
+    const info = await transporter.sendMail({
+      from: `"Ali Cash" <${emailUser}>`,
+      to,
+      subject,
+      text: text || "",
+      html: html || text
+    });
 
-    if (!response.ok) {
-      console.error("[Email Debug] Mailtrap Error:", result);
-      throw new Error(`فشل إرسال البريد عبر Mailtrap: ${result.errors?.join(', ') || 'خطأ غير معروف'}`);
-    }
-
-    console.log(`[Email Debug] Email sent successfully!`);
-    return result;
+    console.log(`[Email Debug] Email sent successfully: ${info.messageId}`);
+    return info;
   } catch (error: any) {
-    console.error("[Email Debug] Unexpected Error:", error);
-    throw new Error(`حدث خطأ أثناء إرسال البريد: ${error.message}`);
+    console.error("[Email Debug] Microsoft Email Error:", error);
+    throw new Error(`فشل إرسال البريد عبر Microsoft: ${error.message}`);
   }
 }
 
@@ -515,8 +504,8 @@ app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) =>
 
   // Send Email
   try {
-    if (!process.env.MAILTRAP_TOKEN) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (MAILTRAP_TOKEN)");
+    if (!process.env.EMAIL_USER) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (EMAIL_USER)");
     }
 
     await sendEmail({
@@ -581,8 +570,8 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
       .run(code, expires, user.id);
 
     // Send Email
-    if (!process.env.MAILTRAP_TOKEN) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (MAILTRAP_TOKEN)");
+    if (!process.env.EMAIL_USER) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (EMAIL_USER)");
     }
 
     await sendEmail({
