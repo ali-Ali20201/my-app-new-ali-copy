@@ -264,6 +264,7 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
   console.log(`[Email Debug] sendEmail called for: ${to}, subject: ${subject}`);
   
+  // تأكد من استخدام EMAIL_USER و EMAIL_PASS
   const user = process.env.EMAIL_USER;
   const pass = process.env.EMAIL_PASS;
 
@@ -296,7 +297,6 @@ async function sendEmail({ to, subject, text, html }: { to: string; subject: str
     throw new Error(`فشل إرسال البريد عبر Gmail: ${err.message}`);
   }
 }
-
 // Auth Routes
 app.post("/api/auth/register", asyncHandler(async (req: any, res: any) => {
   const { name, email, password } = req.body;
