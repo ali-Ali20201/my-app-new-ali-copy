@@ -263,106 +263,37 @@ app.get("/api/push/vapid-public-key", (req, res) => {
 // Email Helper
 async function sendEmail({ to, subject, text, html }: { to: string; subject: string; text?: string; html?: string }) {
   console.log(`[Email Debug] sendEmail called for: ${to}, subject: ${subject}`);
-  const resendApiKey = process.env.RESEND_API_KEY;
   
-  // Try Resend first if API key is available
-  if (resendApiKey) {
-    console.log(`[Email Debug] Attempting to send email via Resend to: ${to}`);
-    try {
-      const resend = new Resend(resendApiKey);
-      
-      // Add timeout for Resend
-      const resendPromise = resend.emails.send({
-        from: 'Ali Cash <onboarding@resend.dev>',
-        to: [to],
-        subject: subject,
-        text: text || "",
-        html: html || text || "",
-      });
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Resend Timeout")), 10000)
-      );
-
-      const { data, error } = await Promise.race([resendPromise, timeoutPromise]) as any;
-      
-      if (error) {
-        console.error("[Email Debug] Resend Error:", error);
-        // Fallback to SMTP if Resend fails
-      } else {
-        console.log(`[Email Debug] Email sent successfully via Resend: ${data?.id}`);
-        return data;
-      }
-    } catch (err) {
-      console.error("[Email Debug] Resend Exception:", err);
-      // Fallback to SMTP
-    }
+  if (!user || !pass) {
+    throw new Error("لم يتم ضبط إعدادات البريد (EMAIL_USER/EMAIL_PASS)");
   }
 
-  console.log(`[Email Debug] Attempting to send email via SMTP to: ${to}`);
-  
-  const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS;
-
-  console.log(`[Email Debug] EMAIL_USER set: ${!!emailUser}, EMAIL_PASS set: ${!!emailPass}`);
-
-  if (!emailUser || !emailPass) {
-    throw new Error("لم يتم ضبط إعدادات البريد الإلكتروني (EMAIL_USER/EMAIL_PASS)");
-  }
-
+  console.log(`[Email Debug] Attempting to send email via Gmail SMTP to: ${to}`);
   try {
-    let host = process.env.EMAIL_HOST;
-    
-    // Auto-detect host if not provided
-    if (!host) {
-      if (emailUser.toLowerCase().endsWith("@gmail.com")) {
-        host = "smtp.gmail.com";
-      } else if (emailUser.toLowerCase().endsWith("@outlook.com") || emailUser.toLowerCase().endsWith("@hotmail.com") || emailUser.toLowerCase().endsWith("@live.com")) {
-        host = "smtp.office365.com";
-      } else {
-        host = "smtp.office365.com"; // Default fallback
-      }
-    }
-
-    const isGmail = host.includes("gmail.com");
-    
     const transporter = nodemailer.createTransport({
-      host: host,
-      port: isGmail ? 465 : 587,
-      secure: isGmail, // true for 465, false for 587
+      service: 'gmail',
       auth: {
-        user: emailUser,
-        pass: emailPass
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 10000,   // 10 seconds
-      socketTimeout: 10000      // 10 seconds
+        user: user,
+        pass: pass
+      }
     });
 
     const info = await transporter.sendMail({
-      from: `"Ali Cash" <${emailUser}>`,
+      from: `"Ali Cash" <${user}>`,
       to,
       subject,
       text: text || "",
       html: html || text
     });
 
-    console.log(`[Email Debug] Email sent successfully via SMTP: ${info.messageId}`);
+    console.log(`[Email Debug] Email sent successfully via Gmail: ${info.messageId}`);
     return info;
-  } catch (error: any) {
-    console.error("[Email Debug] SMTP Email Error:", error);
-    
-    let userMessage = error.message;
-    if (error.message.includes("535 5.7.139")) {
-      userMessage = "فشل المصادقة: قامت مايكروسوفت بتعطيل 'Basic Authentication'. يرجى التأكد من تفعيل 'SMTP AUTH' في إعدادات حسابك أو استخدام 'App Password' وإذا استمرت المشكلة يفضل استخدام بريد Gmail أو خدمة Resend.";
-    } else if (error.message.includes("Invalid login")) {
-      userMessage = "بيانات تسجيل الدخول غير صحيحة. يرجى التأكد من البريد وكلمة السر (أو كلمة سر التطبيق).";
-    }
-    
-    throw new Error(`فشل إرسال البريد: ${userMessage}`);
+  } catch (err: any) {
+    console.error("[Email Debug] Gmail SMTP Exception:", err);
+    throw new Error(`فشل إرسال البريد عبر Gmail: ${err.message}`);
   }
 }
 
@@ -450,51 +381,51 @@ app.post("/api/auth/login", asyncHandler(async (req: any, res: any) => {
   }
 
   // Generate 5-digit login code
-  // const loginCode = Math.floor(10000 + Math.random() * 90000).toString();
-  // const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+  const loginCode = Math.floor(10000 + Math.random() * 90000).toString();
+  const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
-  // await db
-  //   .prepare(
-  //     "UPDATE users SET login_code = ?, login_code_expires = ? WHERE id = ?",
-  //   )
-  //   .run(loginCode, expires.toISOString(), user.id);
+  await db
+    .prepare(
+      "UPDATE users SET login_code = ?, login_code_expires = ? WHERE id = ?",
+    )
+    .run(loginCode, expires.toISOString(), user.id);
 
-  // // Send Email
-  // try {
-  //   await sendEmail({
-  //     to: email,
-  //     subject: "كود التحقق لتسجيل الدخول",
-  //     html: `
-  //       <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
-  //         <h2 style="color: #4f46e5;">تسجيل الدخول</h2>
-  //         <p style="font-size: 16px; color: #333;">لقد طلبت تسجيل الدخول إلى حسابك.</p>
-  //         <p style="font-size: 16px; color: #333;">كود التحقق الخاص بك هو:</p>
-  //         <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 200px;">
-  //           <h1 style="color: #111827; margin: 0; font-size: 32px; letter-spacing: 5px;">${loginCode}</h1>
-  //         </div>
-  //         <p style="color: #6b7280; font-size: 14px;">هذا الكود صالح لمدة 10 دقائق فقط.</p>
-  //         <p style="color: #ef4444; font-size: 14px; margin-top: 20px;">إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.</p>
-  //       </div>
-  //     `,
-  //   });
-  // } catch (err) {
-  //   console.error("Email error during login:", err);
-  //   return res.status(500).json({ error: `فشل في إرسال البريد الإلكتروني: ${err instanceof Error ? err.message : 'خطأ غير معروف'}` });
-  // }
+  // Send Email
+  try {
+    await sendEmail({
+      to: email,
+      subject: "كود التحقق لتسجيل الدخول",
+      html: `
+        <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
+          <h2 style="color: #4f46e5;">تسجيل الدخول</h2>
+          <p style="font-size: 16px; color: #333;">لقد طلبت تسجيل الدخول إلى حسابك.</p>
+          <p style="font-size: 16px; color: #333;">كود التحقق الخاص بك هو:</p>
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 200px;">
+            <h1 style="color: #111827; margin: 0; font-size: 32px; letter-spacing: 5px;">${loginCode}</h1>
+          </div>
+          <p style="color: #6b7280; font-size: 14px;">هذا الكود صالح لمدة 10 دقائق فقط.</p>
+          <p style="color: #ef4444; font-size: 14px; margin-top: 20px;">إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.</p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error("Email error during login:", err);
+    return res.status(500).json({ error: `فشل في إرسال البريد الإلكتروني: ${err instanceof Error ? err.message : 'خطأ غير معروف'}` });
+  }
 
-  // res.json({ require_code: true, email: user.email });
+  res.json({ require_code: true, email: user.email });
   
-  // Return user directly
-  res.json({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    balance: user.balance,
-    role: user.role,
-    a_code: user.a_code,
-    preferred_currency: user.preferred_currency,
-    created_at: user.created_at
-  });
+  // Return user directly (Commented out because we want to require the code)
+  // res.json({
+  //   id: user.id,
+  //   name: user.name,
+  //   email: user.email,
+  //   balance: user.balance,
+  //   role: user.role,
+  //   a_code: user.a_code,
+  //   preferred_currency: user.preferred_currency,
+  //   created_at: user.created_at
+  // });
 }));
 
 app.post("/api/auth/verify-login", asyncHandler(async (req: any, res: any) => {
@@ -585,8 +516,8 @@ app.post("/api/auth/forgot-password", asyncHandler(async (req: any, res: any) =>
 
   // Send Email
   try {
-    if (!process.env.EMAIL_USER) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (EMAIL_USER)");
+    if (!process.env.BREVO_USER || !process.env.BREVO_PASS) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (BREVO_USER/BREVO_PASS)");
     }
 
     await sendEmail({
@@ -651,8 +582,8 @@ app.post("/api/auth/send-edit-code", asyncHandler(async (req: any, res: any) => 
       .run(code, expires, user.id);
 
     // Send Email
-    if (!process.env.EMAIL_USER) {
-      throw new Error("لم يتم إعداد مفتاح خدمة البريد (EMAIL_USER)");
+    if (!process.env.BREVO_USER || !process.env.BREVO_PASS) {
+      throw new Error("لم يتم إعداد مفتاح خدمة البريد (BREVO_USER/BREVO_PASS)");
     }
 
     await sendEmail({
